@@ -1,5 +1,5 @@
 # Life App
 
-Offline Android personal organizer. Weekly recurring schedule, automatic task planning, priorities, postponement history and daily reports.
+Offline Android organizer with a 14-day automatic planning horizon, recurring tasks, work and sleep blocks, fixed meetings, weekly hobby selection, postponement priority, history and report notifications. Personal data remains on-device.
 
-Android debug APK is built by GitHub Actions when the build workflow is available. No personal data is stored in the repository.
+Build: Gradle 8.9, JDK 17, Android SDK 35. GitHub Actions publishes the debug APK as an artifact. Notifications are approximate; reopen the app to refresh the report queue.

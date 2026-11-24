@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>Life App</title>
+<style>
+:root{color-scheme:dark;--bg:#10151d;--panel:#1b2430;--line:#344254;--text:#e9eff6;--muted:#a0b0c1;--accent:#a5d8bd;--amber:#f2c279}*{box-sizing:border-box}body{background:var(--bg);color:var(--text);font:15px system-ui,sans-serif;margin:0;padding:18px 15px 88px}h1{font-size:28px;margin:0 0 4px}h2{font-size:20px;margin:18px 0 10px}h3{font-size:16px;margin:0 0 8px}p{line-height:1.5;margin:8px 0}small,.muted{color:var(--muted);font-size:12px}button,input,select{font:inherit;color:inherit;border:1px solid var(--line);background:#121b26;border-radius:10px;padding:11px;min-height:42px}button{cursor:pointer}button.primary{background:var(--accent);color:#14251f;font-weight:700;border:none}button.danger{color:#ff9b9b}button:disabled{opacity:.5}input,select{width:100%;min-width:0}input[type=checkbox]{width:auto;min-height:0;accent-color:#a5d8bd}label{display:block;font-size:13px;color:var(--muted);margin:8px 0}label input,label select{display:block;margin-top:5px}.panel{padding:14px;background:var(--panel);border:1px solid #273445;border-radius:15px;margin:10px 0}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>*{min-width:0}.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.space{justify-content:space-between}.nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#151e29;border-top:1px solid var(--line);padding:8px 5px 12px;z-index:5}.nav button{flex:1;background:transparent;border:none;padding:8px 2px;font-size:11px;min-width:0;color:var(--muted)}.nav button.active{color:var(--accent);font-weight:bold}.event{border-left:4px solid #7188a1;padding:10px 11px;margin:7px 0;background:#1b2430;border-radius:9px}.event.routine{border-color:#a5d8bd}.event.hobby{border-color:#b6a4f4}.event.personal{border-color:#f2c279}.event.fixed{border-color:#7188a1}.done{opacity:.58}.tag{font-size:12px;color:var(--accent)}.warn{color:var(--amber)}.bar{height:8px;background:#334252;border-radius:8px;overflow:hidden;margin:8px 0}.bar span{display:block;height:100%;background:var(--accent)}.daygrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:12px 0}.daygrid button{font-size:12px;padding:8px 1px}.daygrid .sel{background:var(--accent);color:#182820}.hide{display:none}dialog{max-width:94%;width:440px;border:1px solid var(--line);border-radius:15px;background:var(--panel);color:var(--text);padding:16px;max-height:86vh;overflow:auto}dialog::backdrop{background:#000a}.inline{display:flex;align-items:center;gap:8px}.inline input{display:inline;margin:0}.big{font-size:25px;font-weight:700}
+</style></head><body>
+<header><h1>Life App</h1><div class="muted" id="subtitle">Твой персональный планировщик</div></header>
+<main id="main"></main>
+<nav class="nav" id="nav"></nav>
+<dialog id="edit"><form id="taskForm"><h2 id="formTitle">Новая задача</h2>
+<label>Название<input id="name" required maxlength="120"></label>
+<label>Категория<select id="type"><option value="routine">Рутина / быт</option><option value="personal">Личное дело</option><option value="hobby">Хобби</option></select></label>
+<div id="hobbyFields" class="hide"><label>Группа хобби<input id="group" placeholder="Например, спорт"></label><label class="inline"><input type="checkbox" id="activeHobby"> Выбрать на текущую неделю</label></div>
+<div class="two"><label>Длительность, мин<input id="duration" type="number" min="5" max="720" step="5" value="30" required></label><label>Приоритет (1–10)<input id="priority" type="number" min="1" max="10" value="5" required></label></div>
+<label id="dateLabel">Желаемая дата<input id="due" type="date" required></label>
+<div id="flexFields"><div class="two"><label>Повтор каждые N дней (0 — разово)<input id="repeat" type="number" min="0" max="365" value="0" required></label><label>Можно раньше на N дней<input id="early" type="number" min="0" max="14" value="1" required></label></div>
+<div class="two"><label>Не раньше<input id="from" type="time" value="00:00"></label><label>Не позже<input id="to" type="time" value="23:59"></label></div></div>
+<div id="fixedFields" class="hide"><label>Начало встречи<input id="start" type="time" value="18:00"></label></div>
+<div class="row space"><button type="button" onclick="document.getElementById('edit').close()">Отмена</button><button type="submit" class="primary">Сохранить</button></div></form></dialog>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const localDate=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const asDate=d=>new Date(d+'T12:00:00');
+const today=()=>localDate(new Date());
+function plus(d,n){let x=asDate(d);x.setDate(x.getDate()+n);return localDate(x);}
+function diff(a,b){return Math.round((Date.parse(a+'T00:00:00Z')-Date.parse(b+'T00:00:00Z'))/86400000);}
+function monday(d){return plus(d,-((asDate(d).getDay()+6)%7));}
+const min=t=>{let a=String(t).split(':').map(Number);return a[0]*60+a[1];};
+const hm=n=>pad(Math.floor(n/60))+':'+pad(n%60);
+const timestamp=(d,m)=>{let x=asDate(d);x.setHours(0,m,0,0);return x.getTime();};
+const nowMin=()=>new Date().getHours()*60+new Date().getMinutes();
+const pretty=d=>asDate(d).toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'short'});
+const cats={routine:'Рутина',personal:'Личное',hobby:'Хобби',fixed:'Режим'};
+const defaults={settings:{wake:'07:00',bed:'23:00',leave:'08:00',home:'18:30',days:[1,2,3,4,5],buffer:30,morning:'07:05',before:30,evening:'22:00',reports:true},tasks:[],history:[],overrides:{},plan:{},hobbyWeeks:{}};
+let S;
+try{S=JSON.parse(localStorage.getItem('life-v1')||'null')||structuredClone(defaults);}catch(e){S=JSON.parse(JSON.stringify(defaults));}
+S.settings={...defaults.settings,...S.settings};S.tasks=S.tasks||[];S.history=S.history||[];S.overrides=S.overrides||{};S.plan=S.plan||{};S.hobbyWeeks=S.hobbyWeeks||{};
+let tab='today', selected=today(), week=monday(today()), editId=null, plan=[], unplaced=[];
+const save=()=>localStorage.setItem('life-v1',JSON.stringify(S));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const completed=k=>S.history.some(h=>h.kind==='done'&&h.key===k);
+function enabledHobby(t,d){return (S.hobbyWeeks[monday(d)]||[]).includes(t.id);}
+function block(list,day,a,b,name,type='fixed',key=null,p=0){a=Math.max(0,a);b=Math.min(1440,b);if(b>a)list.push({day,a,b,name,type,key,p,fixed:true});}
+function fixedFor(day){
+ let s=S.settings, a=min(s.wake), b=min(s.bed), l=[];
+ if(a<b){block(l,day,0,a,'Сон');block(l,day,b,1440,'Сон');block(l,day,b-Number(s.buffer),b,'Свободный резерв');}
+ else {block(l,day,b,a,'Сон');block(l,day,b-Number(s.buffer),b,'Свободный резерв');}
+ if(s.days.includes(asDate(day).getDay()))block(l,day,min(s.leave),min(s.home),'Работа + дорога');
+ for(const t of S.tasks.filter(t=>t.type==='personal')){
+   let start=min(t.start),end=start+t.duration;
+   if(t.due===day)block(l,day,start,end,t.name,'personal',t.id+'@'+t.due,t.priority);
+   if(plus(t.due,1)===day&&end>1440)block(l,day,0,end-1440,t.name,'personal',t.id+'@'+t.due,t.priority);
+ }
+ return l;
+}
+function calculate(){
+ const start=today(), end=plus(start,13), days=Array.from({length:14},(_,i)=>plus(start,i));
+ let out=days.flatMap(fixedFor), candidates=[], missed=[];
+ for(const t of S.tasks){
+   if(t.type==='personal')continue;
+   let ds=[];
+   if(t.repeat>0){
+     let index=Math.max(0,Math.floor(diff(start,t.due)/t.repeat));
+     // Keep at most one previous incomplete occurrence, then future occurrences.
+     if(index>0){let old=plus(t.due,(index-1)*t.repeat);if(!completed(t.id+'@'+old)&&plus(t.due,index*t.repeat)>=start)ds.push(old);}
+     let d=plus(t.due,index*t.repeat);
+     for(let i=0;i<400&&d<=plus(end,t.early);i++,d=plus(d,t.repeat))ds.push(d);
+   }else ds=[t.due];
+   for(const due of [...new Set(ds)]){
+     let key=t.id+'@'+due;if(completed(key))continue;
+     if(t.type==='hobby'&&!enabledHobby(t,due))continue;
+     if(plus(due,-t.early)>end)continue;
+     let o=S.overrides[key]||{}, p=Math.min(10,t.priority+(o.count||0));
+     candidates.push({t,due,key,o,p,rank:p*10+Math.max(0,-diff(due,start))*3});
+   }
+ }
+ candidates.sort((a,b)=>b.rank-a.rank||a.due.localeCompare(b.due)||b.t.duration-a.t.duration);
+ const overlaps=(d,a,b)=>out.some(x=>x.day===d&&a<x.b&&b>x.a);
+ const valid=(c,d,a,allowStarted=false)=>a>=min(c.t.from)&&a+c.t.duration<=Math.min(1440,min(c.t.to)+1)&&(!c.o.notBefore||timestamp(d,a)>=c.o.notBefore)&&(!overlaps(d,a,a+c.t.duration))&&(d!==start||a>=nowMin()||allowStarted&&a+c.t.duration>nowMin());
+ let remaining=[];
+ // Retain a currently running block unless explicitly postponed or conflicting.
+ for(const c of candidates){
+   let old=S.plan[c.key];
+   if(old&&old.day===start&&old.a<=nowMin()&&old.b>nowMin()&&valid(c,old.day,old.a,true)){
+     out.push({day:old.day,a:old.a,b:old.a+c.t.duration,name:c.t.name,type:c.t.type,key:c.key,p:c.p,due:c.due});
+   }else remaining.push(c);
+ }
+ for(const c of remaining){
+   let first=plus(c.due,-c.t.early), possible=days.filter(d=>d>=first);
+   if(c.t.type==='hobby')possible=possible.filter(d=>monday(d)===monday(c.due));
+   // Prefer due day, then slightly earlier dates, then later dates.
+   possible.sort((a,b)=>{let score=d=>d===c.due?0:d<c.due?diff(c.due,d):100+diff(d,c.due);return score(a)-score(b);});
+   let slot=null;
+   for(let d of possible){
+     let a=Math.max(min(c.t.from),d===start?Math.ceil(nowMin()/5)*5:0);
+     if(c.o.notBefore&&localDate(new Date(c.o.notBefore))===d){let n=new Date(c.o.notBefore);a=Math.max(a,Math.ceil((n.getHours()*60+n.getMinutes())/5)*5);}
+     a=Math.ceil(a/5)*5;
+     // Preserve the previous future slot when it is on the preferred available day.
+     let old=S.plan[c.key];
+     if(old&&old.day===d&&old.a>=a&&valid(c,d,old.a)){slot={day:d,a:old.a};break;}
+     for(;a+c.t.duration<=Math.min(1440,min(c.t.to)+1);a+=5){if(valid(c,d,a)){slot={day:d,a};break;}}
+     if(slot)break;
+   }
+   if(slot)out.push({...slot,b:slot.a+c.t.duration,name:c.t.name,type:c.t.type,key:c.key,p:c.p,due:c.due});
+   else if(c.due<=end)missed.push(c);
+ }
+ const next={};out.forEach(e=>{if(e.key&&!e.fixed)next[e.key]={day:e.day,a:e.a,b:e.b};});S.plan=next;
+ for(const h of S.history.filter(h=>h.kind==='done'&&h.event&&!h.event.fixed)){out.push({...h.event,done:true});}
+ plan=out.sort((a,b)=>a.day.localeCompare(b.day)||a.a-b.a||a.b-b.b);
+ unplaced=missed;
+}
+function update(){calculate();save();render();syncReports();}
+function switchTab(t){tab=t;if(t==='today')selected=today();render();}
+function eventHTML(e){
+ let done=e.done||e.key&&completed(e.key), action='';
+ if(e.key&&!done)action='<div class="row" style="margin-top:8px"><button onclick="finish(\''+esc(e.key)+'\')">✓ Выполнено</button>'+(e.fixed?'':'<button onclick="postpone(\''+esc(e.key)+'\',30)">+30 мин</button><button onclick="postpone(\''+esc(e.key)+'\',1440)">На завтра</button>')+'</div>';
+ return '<div class="event '+e.type+(done?' done':'')+'"><div class="row space"><b>'+esc(e.name)+'</b><span class="tag">'+(e.p?e.p+'/10':'')+'</span></div><div class="muted">'+hm(e.a)+' – '+hm(e.b)+' · '+cats[e.type]+(e.due&&e.day>e.due?' · просрочено':'')+(done?' · выполнено':'')+'</div>'+action+'</div>';
+}
+function eventsFor(d){if(d<today())return [...fixedFor(d),...plan.filter(e=>e.day===d&&e.done)].sort((a,b)=>a.a-b.a);return plan.filter(e=>e.day===d);}
+function freeMins(events){
+ let occupied=new Uint8Array(1440);for(let e of events)for(let i=e.a;i<e.b;i++)occupied[i]=1;
+ return 1440-occupied.reduce((s,n)=>s+n,0);
+}
+function dayHTML(d){
+ let es=eventsFor(d), tasks=es.filter(e=>e.key), done=tasks.filter(e=>e.done||completed(e.key)).length, free=freeMins(es);
+ let conflicts=es.filter((e,i)=>e.fixed&&es.slice(0,i).some(x=>x.fixed&&x.a<e.b&&e.a<x.b));
+ return '<div class="panel"><div class="row space"><div><small>Задачи дня</small><div class="big">'+done+' / '+tasks.length+'</div></div><div><small>Свободно по плану</small><div class="big">'+Math.floor(free/60)+'ч '+free%60+'м</div></div></div><div class="bar"><span style="width:'+(tasks.length?100*done/tasks.length:0)+'%"></span></div></div>'+
+ (conflicts.length?'<p class="warn">Есть пересечение фиксированных блоков. Проверь режим и встречи.</p>':'')+
+ es.map(eventHTML).join('')+(es.length?'':'<p class="muted">Нет запланированных дел.</p>')+
+ (d===today()&&unplaced.length?'<div class="panel"><h3 class="warn">Не удалось разместить: '+unplaced.length+'</h3>'+unplaced.map(c=>'<p>'+esc(c.t.name)+' · '+pretty(c.due)+' · '+c.p+'/10</p>').join('')+'</div>':'');
+}
+function finish(key){let e=plan.find(x=>x.key===key&&!x.done);if(!e||completed(key))return;S.history.push({kind:'done',key,name:e.name,type:e.type,time:Date.now(),event:{...e}});delete S.overrides[key];update();}
+function postpone(key,mins){
+ let e=plan.find(x=>x.key===key&&!x.done);if(!e||e.fixed)return;
+ let o=S.overrides[key]||{count:0};o.count++;
+ o.notBefore=mins===1440?timestamp(plus(e.day,1),e.a):Math.max(Date.now(),timestamp(e.day,e.a))+mins*60000;
+ S.overrides[key]=o;S.history.push({kind:'postpone',key,name:e.name,type:e.type,time:Date.now()});delete S.plan[key];update();
+}
+function openEditor(id=null){
+ editId=id;let t=S.tasks.find(x=>x.id===id)||{name:'',type:'routine',group:'',duration:30,priority:5,due:today(),repeat:0,early:1,from:'00:00',to:'23:59',start:'18:00'};
+ $('formTitle').textContent=id?'Редактировать задачу':'Новая задача';
+ for(let k of ['name','type','group','duration','priority','due','repeat','early','from','to','start'])$(k).value=t[k]??'';
+ $('activeHobby').checked=id?enabledHobby(t,today()):true;fields();$('edit').showModal();
+}
+function fields(){let t=$('type').value;$('fixedFields').classList.toggle('hide',t!=='personal');$('flexFields').classList.toggle('hide',t==='personal');$('hobbyFields').classList.toggle('hide',t!=='hobby');$('dateLabel').firstChild.textContent=t==='personal'?'Дата встречи':'Желаемая дата';}
+$('type').onchange=fields;
+$('taskForm').onsubmit=e=>{
+ e.preventDefault();
+ let t={id:editId||uid()};for(let k of ['name','type','group','due','from','to','start'])t[k]=$(k).value.trim();
+ for(let k of ['duration','priority','repeat','early'])t[k]=Number($(k).value);
+ if(!t.name||!t.due||t.priority<1||t.priority>10||t.duration<5||t.duration>720)return;
+ if(t.type!=='personal'&&min(t.from)+t.duration>min(t.to)+1){alert('Длительность не помещается в выбранное окно.');return;}
+ if(t.type==='personal'){t.repeat=0;t.early=0;}
+ if(editId)S.tasks=S.tasks.map(x=>x.id===editId?t:x);else S.tasks.push(t);
+ if(t.type==='hobby'){let w=monday(today()), set=new Set(S.hobbyWeeks[w]||[]);if($('activeHobby').checked)set.add(t.id);else set.delete(t.id);S.hobbyWeeks[w]=[...set];}
+ $('edit').close();update();
+};
+function removeTask(id){if(confirm('Удалить задачу? История сохранится.')){S.tasks=S.tasks.filter(t=>t.id!==id);update();}}
+function toggleHobby(id){let set=new Set(S.hobbyWeeks[week]||[]);if(set.has(id))set.delete(id);else set.add(id);S.hobbyWeeks[week]=[...set];update();}
+function render(){
+ $('nav').innerHTML=[['today','Сегодня'],['week','Неделя'],['tasks','Дела'],['stats','Статистика'],['settings','Режим']].map(([k,n])=>'<button class="'+(tab===k?'active':'')+'" onclick="switchTab(\''+k+'\')">'+n+'</button>').join('');
+ let m=$('main'), html='';
+ if(tab==='today'){html='<div class="row space"><h2>'+pretty(today())+'</h2><button class="primary" onclick="openEditor()">+ Дело</button></div>'+dayHTML(today());}
+ if(tab==='week'){
+   if(selected<week||selected>plus(week,6))selected=week;
+   html='<div class="row space"><button onclick="moveWeek(-1)">‹</button><h2>'+pretty(week)+' – '+pretty(plus(week,6))+'</h2><button onclick="moveWeek(1)">›</button></div><div class="daygrid">'+Array.from({length:7},(_,i)=>{let d=plus(week,i);return '<button class="'+(selected===d?'sel':'')+'" onclick="pickDay(\''+d+'\')">'+['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][i]+'<br>'+asDate(d).getDate()+'</button>';}).join('')+'</div>';
+   html+=dayHTML(selected);
+   html+='<h2>Хобби этой недели</h2>'+S.tasks.filter(t=>t.type==='hobby').map(t=>'<label class="panel inline"><input type="checkbox" '+((S.hobbyWeeks[week]||[]).includes(t.id)?'checked':'')+' onchange="toggleHobby(\''+t.id+'\')">'+esc(t.group?t.group+' / '+t.name:t.name)+'</label>').join('');
+   if(week>monday(plus(today(),13)))html+='<p class="muted">Автоплан строится на ближайшие 14 дней.</p>';
+ }
+ if(tab==='tasks'){
+   html='<div class="row space"><h2>Список дел</h2><button class="primary" onclick="openEditor()">+ Добавить</button></div>';
+   for(let k of ['routine','personal','hobby']){
+     html+='<h3 style="margin-top:18px">'+cats[k]+'</h3>';
+     let ts=S.tasks.filter(t=>t.type===k);
+     html+=ts.length?ts.map(t=>'<div class="panel"><div class="row space"><b>'+esc(t.name)+'</b><span class="tag">'+t.priority+'/10</span></div><p class="muted">'+t.duration+' мин · '+(t.type==='personal'?pretty(t.due)+' '+esc(t.start):t.repeat?'каждые '+t.repeat+' дн.':'разово · '+pretty(t.due))+(t.group?' · '+esc(t.group):'')+'</p><div class="row"><button onclick="openEditor(\''+t.id+'\')">Изменить</button><button class="danger" onclick="removeTask(\''+t.id+'\')">Удалить</button></div></div>').join(''):'<p class="muted">Пока нет задач.</p>';
+   }
+ }
+ if(tab==='stats'){
+   let cutoff=timestamp(plus(today(),-6),0), h=S.history.filter(x=>x.time>=cutoff), done=h.filter(x=>x.kind==='done'), delays=h.filter(x=>x.kind==='postpone'), counts={};
+   for(let x of delays)counts[x.name]=(counts[x.name]||0)+1;
+   html='<h2>Последние 7 дней</h2><div class="two"><div class="panel"><small>Выполнено</small><div class="big">'+done.length+'</div></div><div class="panel"><small>Переносов</small><div class="big">'+delays.length+'</div></div></div><div class="panel"><h3>По категориям</h3>'+['routine','personal','hobby'].map(k=>'<p>'+cats[k]+': '+done.filter(x=>x.type===k).length+' выполнено / '+delays.filter(x=>x.type===k).length+' переносов</p>').join('')+'</div><div class="panel"><h3>Чаще всего откладываются</h3>'+Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([n,v])=>'<p>'+esc(n)+': '+v+'</p>').join('')+(!delays.length?'<p class="muted">Нет переносов.</p>':'')+'</div><h2>История</h2>'+h.slice().reverse().map(x=>'<div class="panel">'+esc(x.name)+'<br><small>'+new Date(x.time).toLocaleString('ru-RU')+' · '+(x.kind==='done'?'выполнено':'перенесено')+'</small></div>').join('');
+ }
+ if(tab==='settings'){
+   let s=S.settings;
+   html='<h2>Недельный режим</h2><form id="settingsForm"><div class="panel"><h3>Сон</h3><div class="two"><label>Подъём<input type="time" id="wake" value="'+s.wake+'" required></label><label>Сон с<input type="time" id="bed" value="'+s.bed+'" required></label></div><h3>Работа</h3><div class="two"><label>Выхожу из дома<input type="time" id="leave" value="'+s.leave+'" required></label><label>Возвращаюсь<input type="time" id="home" value="'+s.home+'" required></label></div><div class="row">'+[1,2,3,4,5,6,0].map((d,i)=>'<label class="inline"><input type="checkbox" name="workday" value="'+d+'" '+(s.days.includes(d)?'checked':'')+'>'+['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][i]+'</label>').join('')+'</div><label>Резерв перед сном, минут<input type="number" id="buffer" value="'+s.buffer+'" min="0" max="180" required></label></div><div class="panel"><h3>Отчёты</h3><label class="inline"><input type="checkbox" id="reports" '+(s.reports?'checked':'')+'> Уведомления</label><label>Утро<input type="time" id="morning" value="'+s.morning+'" required></label><label>За сколько минут до возвращения<input type="number" id="before" min="0" max="180" value="'+s.before+'" required></label><label>Итоги вечером<input type="time" id="evening" value="'+s.evening+'" required></label><p class="muted">Android может задерживать уведомления в режиме экономии энергии. Открывай приложение хотя бы раз в две недели для обновления отчётов.</p></div><button class="primary" type="submit">Сохранить режим</button></form><div class="panel"><h3>Данные</h3><p class="muted">Все данные хранятся локально. Экспортируй копию перед удалением приложения.</p><div class="row"><button onclick="backup()">Экспорт</button><button onclick="document.getElementById(\'importFile\').click()">Импорт</button></div><input class="hide" type="file" id="importFile" accept="application/json,.json,text/plain" onchange="restore(event)"></div>';
+ }
+ m.innerHTML=html;
+ if(tab==='settings')$('settingsForm').onsubmit=e=>{e.preventDefault();let s=S.settings;for(let k of ['wake','bed','leave','home','morning','evening'])s[k]=$(k).value;for(let k of ['buffer','before'])s[k]=Number($(k).value);s.days=[...document.querySelectorAll('[name=workday]:checked')].map(x=>Number(x.value));s.reports=$('reports').checked;if(min(s.wake)===min(s.bed)||min(s.leave)>=min(s.home)){alert('Проверь время. Рабочий блок должен заканчиваться в тот же день.');return;}update();};
+}
+function moveWeek(n){week=plus(week,n*7);selected=week;render();}
+function pickDay(d){selected=d;render();}
+function backup(){let data=JSON.stringify(S,null,2);if(window.LifeAndroid)LifeAndroid.share(data);else{let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));a.download='life-app.json';a.click();}}
+async function restore(e){
+ try{let obj=JSON.parse(await e.target.files[0].text());if(!obj.settings||!Array.isArray(obj.tasks)||!Array.isArray(obj.history)||!obj.overrides||!obj.hobbyWeeks)throw Error();if(confirm('Заменить текущие данные резервной копией?')){S=obj;S.plan=S.plan||{};S.settings={...defaults.settings,...S.settings};update();}}catch(err){alert('Некорректная резервная копия.');}
+}
+function syncReports(){
+ if(!window.LifeAndroid)return;let q=[];
+ if(S.settings.reports)for(let i=0;i<14;i++){
+   let d=plus(today(),i), es=eventsFor(d).filter(x=>x.key&&!x.done&&!completed(x.key));
+   let summary=arr=>arr.length?arr.map(x=>hm(x.a)+' '+x.name).join('\n'):'Нет запланированных задач.';
+   q.push({time:timestamp(d,min(S.settings.morning)),title:'Утренний план',body:summary(es)});
+   if(S.settings.days.includes(asDate(d).getDay())){let a=min(S.settings.home)-S.settings.before;q.push({time:timestamp(d,a),title:'План после работы',body:summary(es.filter(x=>x.b>=a))});}
+   q.push({time:timestamp(d,min(S.settings.evening)),title:'Вечерний отчёт',body:'Осталось по последнему плану: '+es.length+'\n'+summary(es)});
+ }
+ LifeAndroid.reports(JSON.stringify(q));
+}
+window.refreshLife=update;
+update();
+</script></body></html>
